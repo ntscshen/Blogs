@@ -30,7 +30,7 @@ Replace npm with your package manager of choice. `npm`, `pnpm`, `yarn`, `bun`, e
 
 ## Theme
 
-[![astrosphere](./public/brand.svg)](https://astro.build/themes/details/astrosphere/)
+[![astrosphere](./public/open-graph.jpg)](https://astro.build/themes/details/astrosphere/)
 
 ## 🏛️ License
 
