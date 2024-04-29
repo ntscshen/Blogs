@@ -2,6 +2,11 @@
 <br>
 
 Here, I will add some of my personal experiences and project histories, and share some issues encountered with TS full-stack technology. These blog posts will be dedicated to explaining complex issues clearly using simple and easy-to-understand language.
+<p align="center">
+<br>
+    <a href="https://ntscshen.site">🖥 Online Preview</a>
+<br>
+</p>
 
 ## 🚀 Deploy your own
 
