@@ -1,0 +1,57 @@
+---
+title: "NestJS(1)初始启动"
+summary: "NestJS 理解整体框架"
+date: "2024-04-30"
+draft: false
+tags:
+- NestJS
+---
+
+在理解架构之前，先详细过一遍官方默认打开的基础案例，理解了每一行代码之后，再去描述架构
+
+## 基础案例
+
+### main.ts
+
+```javascript
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await app.listen(3000);
+}
+bootstrap();
+```
+
+1. 首先导入`NestFactory`类，当前类名语义化很明确，是 `NestJS` 中用来创建应用实例的工厂类，大白话说就是用来专门生成NestJS应用的工厂。
+2. 其次导入`AppModule`类，当前类名语义化依旧很明确，是整个应用的根模块，是整个 `NestJS` 架构的核心入口模块。
+3. 最后，调用 `bootstrap` 函数，在软件开发语境中 `bootstrap` 通常被翻译为启动。
+   1. 调用 `NestFactory.create(AppModule)` 函数创建一个应用实例，这是启动的第一步，负责配置根模块和整个应用的依赖关系。
+   2. 调用 `app.listen(3000)` 监听3000端口
+
+> tip: `bootstrap` 这个词源自短语 "pull oneself up by one's bootstraps"，意指依靠自己的力量改善自己的情况或完成某些困难的任务。这个短语形象地描述了一个看似不可能的行为——一个人试图通过拉动自己的靴带来把自己举起来。
+
+### app.module.ts
+
+```javascript
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+@Module({
+  imports: [],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+```
+
+AppModule 通常是应用的根模块，主入口模块。这个模块快通过组织和协调应用中的各个部分来设置应用的整体结构
+
+1. `import { Module } from '@nestjs/common';` 从官方包中导入Module函数，这是一个非常关键的函数，它用于定义和组织应用程序的模块。当前函数会通过装饰器的形式将导出的AppModule类标记为模块。至于如何转化为模块的暂时放一边，暂时先记住用NestJS就必须将类转换成模块，转换成模块的方式就是使用在当前类上添加 `@Module()`，这东西`@Module()` 是TS提供的一种特性(装饰器)。至于原理下一篇文章会进行详细阐述
+2. `@Module()`装饰器是必须的，并且它需要接收一些参数来定义模块的结构和行为。这些参数在NestJS中非常关键，因为它们指定了模块如何与其他模块协同工作。这些参数又被称为"元数据"，因为这些参数和当前的类有着非常重要关联关系，可以理解为关于`AppModule`类的额外数据信息，元数据不仅描述了类的结构，还指定了类的行为。所以，我们可以将提供给类、方法或属性的这些额外信息视为元数据。
+
+## imports、controllers、providers 这三个元数据分别是什么？解决什么问题？为什么要怎么加？
+
+.... 有待完善
