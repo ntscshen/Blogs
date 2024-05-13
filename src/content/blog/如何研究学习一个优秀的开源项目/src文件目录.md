@@ -43,7 +43,7 @@ tags:
 - 类型引用：types="vite/client" 指明了要引入的类型定义模块。这里，它指向 Vite 提供的客户端库类型定义，这些类型定义包括了 import.meta.env 和 import.meta.hot 等 Vite 特定的扩展。
 - 目的：通过引用 vite/client，你的项目中的 TypeScript 文件可以获得关于 import.meta 扩展的智能提示和编译时类型检查。这包括对 Vite 特有的热模块替换 API 和环境变量的访问，确保这些特性在 TypeScript 代码中被正确使用。
 
-在更目录下已经存在了 `vite-env.d.ts` 了，为什么还要在src中显示的再重复一遍？
+在根目录下已经存在了 `vite-env.d.ts` 了，为什么还要在src中显示的再重复一遍？
 
 **确保所有子目录和文件都能正确识别 Vite 的类型扩展，特别是在大型项目或者复杂的目录结构中。**
 
