@@ -202,3 +202,273 @@ pnpm: https://github.com/pnpm/pnpm/releases/tag/v9.0.0
 `GITHUB_TOKEN` 是自动由 GitHub Actions 生成的，用于授权在当前仓库中进行操作的内置令牌。每次工作流运行时，GitHub 都会自动创建一个新的 GITHUB_TOKEN，并在运行结束后使其失效。
 
 在大多数常规的部署场景中，GITHUB_TOKEN 是足够的，特别是**当操作限于当前仓库时**。如果你的部署任务（例如部署到 GitHub Pages）不需要跨仓库或其他高级权限，可以使用 GITHUB_TOKEN。
+
+## 我们来实现一个， 在github中根据PR的提交信息来自动化添加贡献者的功能，通过all-contributors
+
+```yml
+on:
+  pull_request_target:
+    branches:
+      - main
+    types: [closed]  # 仅在合并后触发
+```
+
+pull_request_target 是什么？ pull_request 又是什么？ 有什么区别？
+
+它们的定义和触发条件都是一致的：在创建、更新、重新打开或关闭拉取请求（PR）时触发。当有人向你的仓库提出拉取请求时，或更新了现有的拉取请求时。
+pull_request
+
+1. 在默认情况下，是无法访问 GitHub Secrets。目的是为了防止潜在的恶意代码泄露机密信息
+2. 运行在拉取请求的源代码分支上（即外部贡献者的分支上）。
+
+pull_request_target
+
+1. 可以访问 GitHub Secrets，因为运行的代码是能仓库中受信任的代码(主分支)
+2. 运行在拉取请求的目标分支上（通常是你的主分支或其他目标分支）。虽然运行的是目标分支的代码，但同时也可以获取到 PR 的上下文信息。
+
+根据操作需求选择 pull_request 或 pull_request_target。
+
+1. 使用 pull_request 进行代码验证和测试，确保不访问机密信息。
+2. 使用 pull_request_target 进行需要机密信息的操作，如推送、部署等。
+
+> 根据当前子标题，看出来我们的需求是，当仓库收到PR时候，action 或监听到并且找到PR的提交者信息和提交的类型，在通过 all-contributors 工具
+> 去自动生成一些信息，让后自动将信息提交到主分支，让后push到仓库中。
+> 这些就需要用到 `pul_request_target` 事件，因为在这个自动化流程中需要访问 `SUCCESS_TOKEN`来自动将生成的新的代码提交到主分支。
+
+```yml
+jobs:
+  test-pat:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    strategy:
+      matrix:
+        node-version: [20.x]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }} # 确保使用PR的最新提交的内容和commit
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: Echo Token Length  # 添加一个步骤来检查 token 长度
+        run: echo "Token Length is ${#PERSONAL_ACCESS_TOKEN}"
+        env:
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          
+      - name: Setup Git
+        run: |
+          git config --global user.email "ntscshen@163.com"
+          git config --global user.name "ntscshen"
+          git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/ntscshen/pr_test.git
+        env:
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+      - name: Switch to main branch and pull latest
+        run: |
+          git fetch --all
+          git checkout -f main
+          git pull origin main
+
+      - name: Add Contributor
+        run: |
+          export GITHUB_ACTOR=${{ github.event.pull_request.user.login }}
+          node scripts/updateContributors.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.event.pull_request.user.login }}  # 使用PR创建者的用户名
+
+      - name: Push changes to remote
+        run: git push origin main
+        env:
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          
+```
+
+`github.event.pull_request.head.sha` 这是PR创建者在其分支上做的最后一次提交，通常用于合并前的各种检查。
+当PR被接受并合并到目标分支(如`main`)时，通常会生成一个新的"合并提交"。 `github.event.pull_request.head.sha` 不包括这个合并操作产生的提交。
+
+当工作流由 `pull_request_target` 事件触发时，默认情况下 actions/checkout 会检出一个虚拟的 **merge commit**，这是 `GitHub` 动态创建的。当PR被接受并合并进目标分支，这个虚拟commit会包含这次合并的commit。当使用 **actions/checkout** 而没有指定 **ref** 时，检出的是虚拟合并分支的状态，这个状态包含所有的PR相关的commit信息。
+
+为什么要指定ref：精准控制检出内容，有时候可能需要确保工作流使用的PR的确切内容，在这些情况下，通过明确指定 **ref** 参数可以确保检出的是我们确切希望的代码状态。
+
+### step步骤如下
+
+1. actions/checkout@4
+  检出PR分支的代码，确保工作流最新提交的内容上运行， `ref: ${{ github.event.pull_request.head.sha }}` 确保检出的代码是PR中最新的提交
+2. pnpm/action-setup@v4
+  设置 `pnpm` 包管理并指定版本9
+3. actions/setup-node@v4
+  设置 Node.js 环境，并启用 pnpm 缓存
+4. pnpm install：安装项目的依赖项
+5. echo "Token Length is ${#PERSONAL_ACCESS_TOKEN}" 用于验证token的有效性
+    在 `pull_request` 当前值为0，在 `pull_request_target` 当前值为40或>0
+6. Setup Git
+    配置 **Git** 用户信息，设置远程仓库的URL地址，使用 `PERSONAL_ACCESS_TOKEN` 进行身份验证
+   `git config --global user.email "ntscshen@163.com"`
+   `git config --global user.name "ntscshen"`
+   `git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/ntscshen/pr_test.git`
+   使用 PERSONAL_ACCESS_TOKEN 代替用户名和密码进行身份验证。这对于 GitHub Actions 工作流中的自动化操作是必要的，因为你不能在工作流中手动输入用户名和密码。
+7. Switch to main branch add pull latest
+    切换主分支并拉取最新代码
+    1. 获取所有分支的最新更新
+    2. 强制切换到主分支
+    3. 从远程主分支拉取最新的代码
+8. Add Contributor：根据PR创建者的信息，运行脚本更新贡献者列表
+9. git push origin main：将更改推送到远程分支
+  
+### node scripts/updateContributors.js
+
+```javascript
+import { execSync } from 'node:child_process';
+import * as fs from 'node:fs';
+
+const typeMap = {
+  feat: 'code',
+  style: 'code',
+  refactor: 'code',
+  perf: 'code',
+  revert: 'code',
+  types: 'code',
+  wip: 'code',
+  chore: 'tool',
+  build: 'tool',
+  ci: 'tool',
+  test: 'test',
+  fix: 'bug',
+  docs: 'doc',
+};
+
+function updateContributors(username, type) {
+  const content = fs.readFileSync('.all-contributorsrc', 'utf-8');
+  const contributors = JSON.parse(content);
+  
+  console.log('contributors: ', contributors);
+  console.log('username', username);
+  console.log('type: ', type);
+  // 检查用户是否已存在
+  const exists = contributors.contributors.some((contributor) => contributor.login === username);
+  if (!exists) {
+    console.log(`Adding new contributor: ${username}`);
+    const command = `npx all-contributors-cli add ${username} ${type}`;
+    console.log(`Running command: ${command}`);
+    execSync(command, { stdio: 'inherit' });
+    console.log('成功添加贡献者.');
+    
+    // Generate the contributors list after adding a new contributor
+    console.log('生成贡献者名单...');
+    const generateCommand = 'npx all-contributors-cli generate';
+    console.log(`Running command: ${generateCommand}`);
+    execSync(generateCommand, { stdio: 'inherit' });
+    console.log('贡献者名单已更新.');
+
+
+    
+      // 阅读更新后的 README.md 内容
+      const readmeContent = fs.readFileSync('README.md', 'utf-8');
+
+      // 提取贡献者徽章部分
+      const badgeStartMarker = '<!-- ALL-CONTRIBUTORS-BADGE:START -->';
+      const badgeEndMarker = '<!-- ALL-CONTRIBUTORS-BADGE:END -->';
+      const badgeStartIndex = readmeContent.indexOf(badgeStartMarker);
+      const badgeEndIndex = readmeContent.indexOf(badgeEndMarker) + badgeEndMarker.length;
+      const contributorsBadgeSection = readmeContent.substring(badgeStartIndex, badgeEndIndex);
+
+      // 提取撰稿人名单部分
+      const listStartMarker = '<!-- ALL-CONTRIBUTORS-LIST:START -->';
+      const listEndMarker = '<!-- ALL-CONTRIBUTORS-LIST:END -->';
+      const listStartIndex = readmeContent.indexOf(listStartMarker);
+      const listEndIndex = readmeContent.indexOf(listEndMarker) + listEndMarker.length;
+      const contributorsListSection = readmeContent.substring(listStartIndex, listEndIndex);
+
+      // 阅读 README.zh-CN.md 内容
+      let readmeZhCnContent = fs.readFileSync('README.zh-CN.md', 'utf-8');
+
+      // 删除 README.zh-CN.md 中现有的贡献者徽章部分
+      const existingBadgeStartIndex = readmeZhCnContent.indexOf(badgeStartMarker);
+      const existingBadgeEndIndex = readmeZhCnContent.indexOf(badgeEndMarker) + badgeEndMarker.length;
+      if (existingBadgeStartIndex !== -1 && existingBadgeEndIndex !== -1) {
+        readmeZhCnContent = readmeZhCnContent.slice(0, existingBadgeStartIndex) + readmeZhCnContent.slice(existingBadgeEndIndex);
+      }
+
+      // 在 README.zh-CN.md 中插入翻译好的贡献者徽章部分
+      readmeZhCnContent = readmeZhCnContent.slice(0, existingBadgeStartIndex) + contributorsBadgeSection + readmeZhCnContent.slice(existingBadgeStartIndex);
+
+      // 删除 README.zh-CN.md 中现有的贡献者列表部分
+      const existingListStartIndex = readmeZhCnContent.indexOf(listStartMarker);
+      const existingListEndIndex = readmeZhCnContent.indexOf(listEndMarker) + listEndMarker.length;
+      if (existingListStartIndex !== -1 && existingListEndIndex !== -1) {
+        readmeZhCnContent = readmeZhCnContent.slice(0, existingListStartIndex) + readmeZhCnContent.slice(existingListEndIndex);
+      }
+
+      // 在 README.zh-CN.md 中插入已翻译的贡献者名单部分
+      readmeZhCnContent = readmeZhCnContent.slice(0, existingListStartIndex) + contributorsListSection + readmeZhCnContent.slice(existingListStartIndex);
+
+      // 将更新内容写入 README.zh-CN.md
+      fs.writeFileSync('README.zh-CN.md', readmeZhCnContent);
+
+    
+  } else {
+    console.log('已存在贡献者，跳过...');
+  }
+}
+
+function main() {
+  const username = process.env.GITHUB_ACTOR;
+  
+  console.log('fix: 111updateContribcutors.js - GITHUB_ACTOR :>> ', username);
+  if (!username) {
+    console.error('未定义 GITHUB_ACTOR。.');
+    process.exit(1);
+  }
+  
+  const lastCommitMessage = execSync('git log -1 --pretty=%B').toString().trim();
+  const commitType = lastCommitMessage.split(' ')[0];
+  const contributionType = typeMap[commitType] || 'code';
+  
+  updateContributors(username, contributionType);
+  
+  // 检查文件状态
+  const checkFileStatus = (filePath) => {
+    const status = execSync(`git status --porcelain ${filePath}`).toString().trim();
+    console.log(`${filePath} status: ${status}`);
+    return status;
+  };
+
+  const allContributorsrcStatus = checkFileStatus('.all-contributorsrc');
+  const readmeStatus = checkFileStatus('README.md');
+  
+  // 检查 git status 以确认有变更
+  const changes = execSync('git status --porcelain').toString().trim();
+  console.log('Git changes:', changes);
+  if (changes) {
+    console.log('检测到更改，继续提交.');
+  } else {
+    console.log('未检测到更改，跳过提交.');
+  }
+}
+
+main();
+
+```
+
+1. 获取PR作者信息、获取commit信息(commitType)
+2. 更新**contributors**列表
+   1. 判断当前PR用户是不是之前就存在在列表中的，如果是则不需要做任何更新
+   2. 如果不是则触发列表更新
+      1. `npx all-contributors-cli add ${username} ${type}`
+      2. `npx all-contributors-cli generate`
+   3. `all-contributors` 只会更新 **README.md** 文件，但是我们文档中还有 `README.zh-CN.md` 文件
+   4. 所以需要将对应的中文文档也进行更新
