@@ -382,3 +382,243 @@ const Posts = () => {
     hasNextPage：一个布尔值，指示是否还有下一页数据。
     isFetchingNextPage：一个布尔值，指示下一页数据是否正在加载。
     status：当前查询的状态（loading、error、success）
+
+## useMutation
+
+useMutation 是 @tanstack/react-query 提供的一个钩子，用于管理数据的修改操作（例如创建、更新、删除）。**主要用于修改数据**
+
+useMutation 函数的参数主要有两个：一个是执行变更操作的函数（mutationFn），另一个是可选的配置对象。
+
+### mutationFn
+
+是一个函数，用于执行数据的修改操作，例如创建、更新、删除等。这个函数需要返回一个 Promise。
+
+```typescript
+const mutationFn = async (data) => {
+  const response = await axios.post('/api/resource', data);
+  return response.data;
+};
+```
+
+### 配置对象
+
+配置对象用于设置一些钩子函数和选项，这些钩子函数可以在操作的不同阶段调用。主要属性有：
+
+- onSuccess：操作成功时调用。
+- onError：操作失败时调用。
+- onSettled：操作无论成功还是失败都会调用。
+- onMutate：操作开始之前调用，可以用来乐观更新数据。
+
+> 乐观更新数据：它假设操作会成功，在服务器响应之前立即更新 UI。
+> 对于大多数情况下会成功的操作，乐观更新可以显著提高响应速度和用户体验。然而，确实存在操作失败需要回滚的风险，可能会导致用户体验不佳。
+> 适用的场景：
+> 1 - 高成功率操作：例如，点赞、收藏、简单表单提交等。
+> 2 - 可容忍短暂不一致的操作：例如，评论区的评论发布、列表中的项删除等。
+> 对于高风险或失败概率较高的操作，可以使用加载指示器（loading）来提示用户操作正在进行中。
+
+```typescript
+const config = {
+  onSuccess: (data, variables, context) => {
+    console.log('Success:', data);
+  },
+  onError: (error, variables, context) => {
+    console.error('Error:', error);
+  },
+  onSettled: (data, error, variables, context) => {
+    console.log('Settled:', { data, error });
+  },
+  onMutate: (variables) => {
+    console.log('Mutate:', variables);
+    return { previousData: 'someData' };
+  },
+};
+```
+
+`useMutation` 返回对象的主要属性
+
+1. mutate：用于触发变更操作的函数。
+2. mutateAsync：用于以异步方式触发变更操作的函数。
+3. status：表示当前变更操作的状态，可以是 idle、loading、error 或 success。
+4. data：变更操作成功时返回的数据。
+5. error：变更操作失败时返回的错误。
+6. isIdle：布尔值，表示变更操作是否处于空闲状态。
+7. isLoading：布尔值，表示变更操作是否正在进行。
+8. isError：布尔值，表示变更操作是否失败。
+9. isSuccess：布尔值，表示变更操作是否成功。
+10. reset：重置变更操作的状态。
+
+useMutation 和 useQuery 这些方法是如何知道请求状态的？
+> useMutation 和 useQuery 依靠传递给它们的函数返回的 Promise 来确定请求的状态。这些钩子会自动处理 Promise 的状态，并相应地更新内部的状态属性。
+> 请求状态管理：useQuery 和 useMutation 使用 Promise 的状态（pending、fulfilled、rejected）来更新组件的状态。
+
+useMutation 分为两个部分（定义和执行）
+
+```typescript
+// 定义 useMutation
+const mutation = useMutation(postDataFunction, {
+onSuccess: () => {
+  // 在变更成功后重新获取数据
+  queryClient.invalidateQueries('dataKey');
+}
+});
+```
+
+参数1：是突变过程中需要执行的函数。
+参数2：是突变的一些回调设置，如 onSuccess、onError 等。
+
+```typescript
+// 手动触发突变操作
+await mutation.mutateAsync({ key: inputValue });
+```
+
+- useMutation 的定义部分只会设置好突变操作及其回调。
+- 你需要通过 mutate 或 mutateAsync 手动触发突变操作。
+- 如果不手动触发，突变操作不会执行。
+
+> 也就是说 useMutation 需要定义并且执行，才能正确使用
+> 为什么？useMutation 的设计目标是处理需要用户交互或特定事件触发的突变操作。例如，表单提交、按钮点击等。因为这些操作往往是用户触发的行为，所以需要手动调用 mutate 或 mutateAsync 来执行。
+
+useQuery却能做到自动触发这是为什么？
+
+useQuery 之所以能自动触发，是因为它的设计目标就是在组件挂载时自动获取数据。
+
+1. 自动执行：当组件挂载时，useQuery 会立即执行你传入的获取数据的函数。这使得数据能够自动加载，而不需要额外的手动触发。
+2. 内部管理状态：useQuery 会自动管理数据获取的状态，包括加载状态、错误状态和数据状态。这使得你可以轻松地在组件中使用这些状态来控制 UI 显示。
+
+useQuery通过第一个参数去传递 `['dataKey', { search, page }], // 查询键`
+
+### useQuery 和 useMutation 的区别和共性
+
+`useQuery`
+
+- 用途：主要用于获取数据。
+- 自动执行：在组件挂载时自动执行。
+- 传递参数：通过查询键（第一个参数中的数组）传递参数，通常使用组件内的状态来动态改变参数。
+- 结构出状态：可以解构出异步状态（如 data, error, isLoading, isFetching）。
+- 配置项：通过第三个参数传递配置项，控制查询行为。
+
+```typescript
+const { data, error, isLoading } = useQuery(['dataKey', { search, page }], fetchDataFunction, {
+  staleTime: 1000 * 60 * 5,
+  cacheTime: 1000 * 60 * 10,
+});
+```
+
+`useMutation`
+
+- 用途：主要用于变更数据（创建、更新、删除）。
+- 手动触发：定义和执行是分开的，需要通过 mutate 或 mutateAsync 手动触发。
+- 传递参数：在调用 mutate 或 mutateAsync 时传递参数，通常是在事件处理器中触发。
+- 结构出状态：可以解构出异步状态（如 isSuccess, isError, isLoading）。
+- 配置项：通过第二个参数传递配置项，控制突变行为。
+
+```typescript
+const mutation = useMutation(postDataFunction, {
+  onSuccess: () => {
+    queryClient.invalidateQueries('dataKey');
+  },
+});
+
+mutation.mutate({ key: inputValue });
+```
+
+共性
+
+- 异步状态管理：都可以解构出异步状态，如成功、失败、进行中、获取的数据等。
+- 灵活配置：通过配置项可以灵活地控制查询和突变的行为。
+- 结合使用：可以结合使用，以在数据变更后重新获取数据。
+
+```typescript
+export const useSignIn = () => {
+  const { t } = useTranslation(); // 国际化翻译函数
+  const navigatge = useNavigate(); // 导航
+  const { notification, message } = App.useApp(); // 获取通知和消息处理函数
+  const { setUserToken, setUserInfo } = useUserActions(); // 用于设置用户信息和令牌的动作
+
+  // 定义 signInMutation 通过 useMutation
+  const signInMutation = useMutation(userService.signin);
+
+  // 定义一个 signIn 异步函数
+  const signIn = async (data: SignInReq) => {
+    try {
+      // 手动触发突变操作，并传递数据(登录突变操作)
+      const res = await signInMutation.mutateAsync(data);
+      const { user, accessToken, refreshToken } = res;
+
+      // 设置用户令牌和信息
+      setUserToken({ accessToken, refreshToken });
+      setUserInfo(user);
+      // 导航到首页，并替换历史记录
+      navigatge(HOMEPAGE, { replace: true });
+
+      // 显示登录成功通知
+      notification.success({
+        message: t('sys.login.loginSuccessTitle'),
+        description: `${t('sys.login.loginSuccessDesc')}: ${data.username}`,
+        duration: 3,
+      });
+    } catch (err) {
+      // 处理登录失败，显示警告消息
+      message.warning({
+        content: err.message,
+        duration: 3,
+      });
+    }
+  };
+  // 使用 useCallback 来缓存 signIn 函数，依赖项为空数组表示只创建一次
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useCallback(signIn, []);
+};
+
+```
+
+## userService
+
+定义用户身份验证和用户信息相关API调用
+
+```typescript
+// 定义登录请求的接口
+export interface SignInReq {
+  username: string;
+  password: string;
+}
+
+// 定义注册请求的接口，继承登录请求的接口
+export interface SignUpReq extends SignInReq {
+  email: string;
+}
+
+// 定义登录响应的类型，包含用户令牌和用户信息
+export type SignInRes = UserToken & { user: UserInfo };
+
+// 定义用户相关的 API 路径
+export enum UserApi {
+  SignIn = '/auth/signin',
+  SignUp = '/auth/signup',
+  Logout = '/auth/logout',
+  Refresh = '/auth/refresh',
+  User = '/user',
+}
+```
+
+signin：登录
+signup：注册
+
+```typescript
+// 定义登录请求函数
+const signin = (data: SignInReq) => apiClient.post<SignInRes>({ url: UserApi.SignIn, data });
+// 定义注册请求函数
+const signup = (data: SignUpReq) => apiClient.post<SignInRes>({ url: UserApi.SignUp, data });
+// 定义登出请求函数
+const logout = () => apiClient.get({ url: UserApi.Logout });
+// 定义根据用户ID获取用户信息的请求函数
+const findById = (id: string) => apiClient.get<UserInfo[]>({ url: `${UserApi.User}/${id}` });
+
+export default {
+  signin,
+  signup,
+  findById,
+  logout,
+};
+
+```
