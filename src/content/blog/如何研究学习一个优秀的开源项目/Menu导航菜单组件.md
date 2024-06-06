@@ -238,7 +238,7 @@ openKeys 是一个数组，它包含当前菜单中需要展开的所有父级�
     // 当前选中的菜单项 key 数组 - 获取的是当前数据中的key值
     selectedKeys={selectedKeys}
     // --------- --------- 选中菜单 end --------- ---------
-    onClick={onClick}
+    onClick={onClick} // -> 点击 MenuItem 调用此函数
     // inline(嵌入) 时菜单是否收起状态 - vertical垂直弹窗显示子级内容 - horizontal水平弹窗显示子级内容
     // 为true时，会只展示icon，不展示文本 - 这是mini状态
     inlineCollapsed={collapsed}
@@ -248,3 +248,233 @@ openKeys 是一个数组，它包含当前菜单中需要展开的所有父级�
     style={menuStyle}
   />
 ```
+
+点击收缩按钮止呕触发的函数 toggleCollapsed
+
+```typescript
+  const toggleCollapsed = () => {
+    if (!collapsed) {
+      // 将主题布局设置为 Mini
+      setThemeLayout(ThemeLayout.Mini);
+    } else {
+      // 将主题布局设置为 Vertical
+      setThemeLayout(ThemeLayout.Vertical);
+    }
+    setCollapsed(!collapsed); // 切换折叠状态
+  };
+```
+
+```typescript
+  useEffect(() => {
+    if (themeLayout === ThemeLayout.Vertical) {
+      setCollapsed(false);
+      setMenuMode('inline');
+    }
+    if (themeLayout === ThemeLayout.Mini) {
+      setCollapsed(true);
+      setMenuMode('inline');
+    }
+  }, [themeLayout]);
+```
+
+toggleCollapsed 函数主要用于处理某个按钮的点击事件，而 useEffect 钩子用于响应 themeLayout 状态的变化。这样设计的目的是确保菜单的 collapsed 状态和 themeLayout 状态在整个应用中始终保持一致。
+
+```typescript
+export function useRouteToMenuFn() {
+  const { t } = useTranslation(); // 用于国际化处理
+  const { themeLayout } = useSettings(); // 获取当前的布局主题设置
+  const routeToMenuFn = useCallback(
+    (items: AppRouteObject[]) => {
+      return items
+        .filter((item) => !item.meta?.hideMenu) // 过滤掉不需要显示在菜单中的路由项
+        .map((item) => {
+          const menuItem: any = [];
+          const { meta, children } = item;
+          if (meta) {
+            const { key, label, icon, disabled, suffix } = meta;
+            menuItem.key = key; // 菜单项的唯一标识
+            menuItem.disabled = disabled; // 是否禁用该菜单项
+            menuItem.label = (
+              <div
+                className={`inline-flex w-full items-center ${
+                  themeLayout === ThemeLayout.Horizontal ? 'justify-start' : 'justify-between'
+                } `}
+              >
+                <div className="">{t(label)}</div>
+                {suffix}
+              </div>
+            );
+            if (icon) {
+              if (typeof icon === 'string') {
+                if (icon.startsWith('ic')) {
+                  menuItem.icon = <SvgIcon icon={icon} size={24} className="ant-menu-item-icon" />;
+                } else {
+                  menuItem.icon = <Iconify icon={icon} size={24} className="ant-menu-item-icon" />;
+                }
+              } else {
+                menuItem.icon = icon; // 直接使用传入的图标
+              }
+            }
+          }
+          if (children) {
+            menuItem.children = routeToMenuFn(children); // 递归处理子路由
+          }
+          return menuItem as ItemType; // 返回符合 Ant Design Menu 组件的菜单项类型
+        });
+    },
+    [t, themeLayout],
+  );
+  return routeToMenuFn;
+}
+```
+
+将路由对象数组转换为 Ant Design Menu 组件所需要的菜单项格式
+
+useCallback：为了优化性能，使用 useCallback 钩子来记忆转换函数，只有当依赖项 t 或 themeLayout 变化时才会重新创建该函数。
+过滤不显示的菜单项：通过 filter 方法，过滤掉 meta.hideMenu 为 true 的路由项。
+生成菜单项：
+  meta 属性：从路由对象中提取 meta 属性，用于生成菜单项的属性。
+  key：设置菜单项的唯一标识符。
+  disabled：是否禁用该菜单项。
+  label：使用国际化处理后的标签和可选的后缀生成菜单项的标签。
+  icon：根据图标类型生成菜单项的图标。支持字符串类型（SVG 图标或 Iconify 图标）和直接传入的图标组件。
+  递归处理子菜单项：如果路由项有子路由（children），则递归调用 routeToMenuFn 处理子路由，生成子菜单项。
+返回菜单项：将生成的菜单项转换为符合 Ant Design Menu 组件要求的 ItemType 类型。
+
+```typescript
+  const onClick: MenuProps['onClick'] = ({ key }) => {
+    // 从扁平化的路由信息里面匹配当前点击的那个
+    const nextLink = flattenedRoutes?.find((el) => el.key === key);
+
+    // 处理菜单项中，外链的特殊情况 - 处理外链情况
+    // 点击外链时，不跳转路由，不在当前项目添加tab，不选中当前路由，新开一个 tab 打开外链
+    if (nextLink?.hideTab && nextLink?.frameSrc) {
+      window.open(nextLink?.frameSrc, '_blank');
+      return;
+    }
+    // 导航到新路由
+    navigate(key);
+    props?.closeSideBarDrawer?.();
+  };
+```
+
+1. 使用 flattenedRoutes 数组的 find 方法，根据 key 查找被点击菜单项对应的路由信息。
+2. flattenedRoutes 是拍平后的路由信息数组，其中每个元素代表一个路由项。
+3. 如果 props 中存在 closeSideBarDrawer 函数，则调用该函数关闭侧边栏。
+
+### HideTab和frameSrc两个属性问题
+
+从功能设计的角度来看，hideTab 和 frameSrc 确实可以被视为一对属性，因为它们通常一起使用来决定一个菜单项是否是外链以及如何处理它。
+
+为什么使用两个属性：虽然只使用一个属性（如 frameSrc）也可以实现同样的功能，但使用两个属性有其设计上的考虑和好处：
+
+明确意图：
+
+1. hideTab 明确表示这个菜单项不应该在当前项目的标签或导航中显示。这是一种显式的设计，可以让代码的意图更加清晰。
+2. frameSrc 表示外链的目标地址。
+
+代码可读性：
+
+1. 通过分离 hideTab 和 frameSrc，可以更直观地理解和维护代码。即使 frameSrc 存在，但没有 hideTab，开发者也知道这个菜单项的处理方式。
+
+灵活性：
+
+1. 这种设计允许更复杂和灵活的配置。例如，未来可能会有不需要隐藏但仍需要处理的其他类型的菜单项，这时可以单独使用 frameSrc 而不需要 hideTab。
+
+### 核心逻辑
+
+#### Menu 展开和关闭逻辑 - 通过 openKeys 状态和 onOpenChange 事件处理菜单项的展开和关闭。
+
+```typescript
+const [openKeys, setOpenKeys] = useState<string[]>([]);
+
+const onOpenChange: MenuProps['onOpenChange'] = (keys) => {
+  setOpenKeys(keys);
+};
+```
+
+openKeys 状态：
+
+1. openKeys 是一个数组，存储当前展开的菜单项的 key 值。
+2. setOpenKeys 用于更新 openKeys 状态。
+
+onOpenChange 事件：
+
+1. onOpenChange 是 Menu 组件的事件处理函数，当菜单项的展开状态变化时触发。
+2. 每当用户展开或关闭某个菜单项时，onOpenChange 函数被调用，keys 参数包含当前所有展开的菜单项的 key 值。
+3. setOpenKeys(keys) 更新 openKeys 状态，控制哪些菜单项是展开的。
+
+#### 菜单选中状态管理 - 通过 selectedKeys 状态和 useEffect 钩子管理菜单项的选中状态，确保菜单项正确高亮显示当前选中的路由。
+
+```typescript
+const [selectedKeys, setSelectedKeys] = useState<string[]>(['']);
+const { pathname } = useLocation();
+
+useEffect(() => {
+  setSelectedKeys([pathname]);
+}, [pathname, matches]);
+```
+
+selectedKeys 状态：
+
+1. selectedKeys 是一个数组，存储当前选中的菜单项的 key 值。
+2. setSelectedKeys 用于更新 selectedKeys 状态。
+
+同步选中状态：
+
+1. useLocation 钩子用于获取当前的路径名（pathname）。
+2. 每当 pathname 或 matches 变化时，useEffect 钩子会将 selectedKeys 设置为当前的路径名，确保菜单项正确高亮显示当前选中的路由。
+
+#### 将路由规则转换为 Menu 数据的规则（菜单数据转换） - 通过自定义钩子和转换函数，将路由规则转换为符合 Menu 组件要求的菜单项数据。
+
+```typescript
+const routeToMenuFn = useRouteToMenuFn();
+const permissionRoutes = usePermissionRoutes();
+const [menuList, setMenuList] = useState<ItemType[]>([]);
+
+useEffect(() => {
+  const menuRoutes = menuFilter(permissionRoutes);
+  const menus = routeToMenuFn(menuRoutes);
+  setMenuList(menus);
+}, [permissionRoutes, routeToMenuFn]);
+```
+
+自定义钩子函数：
+
+1. useRouteToMenuFn：返回一个函数，用于将路由对象转换为 Menu 数据格式。
+2. usePermissionRoutes：返回权限过滤后的路由数据。
+
+菜单数据转换：
+
+1. 使用 menuFilter 函数过滤 permissionRoutes，得到菜单需要的路由数据 menuRoutes。
+2. 使用 routeToMenuFn 将 menuRoutes 转换为符合 Menu 组件要求的菜单项数据 menus。
+3. 更新 menuList 状态，将生成的菜单项数据设置为 Menu 组件的 items 属性。
+
+#### 菜单点击事件处理 - 处理菜单项的点击事件，包括外链处理和路由导航。
+
+```typescript
+const onClick: MenuProps['onClick'] = ({ key }) => {
+  const nextLink = flattenedRoutes?.find((el) => el.key === key);
+
+  if (nextLink?.hideTab && nextLink?.frameSrc) {
+    window.open(nextLink?.frameSrc, '_blank');
+    return;
+  }
+
+  navigate(key);
+};
+```
+
+点击事件处理：
+
+1. onClick 是 Menu 组件的点击事件处理函数，当用户点击菜单项时触发。
+2. 根据点击的菜单项 key，在 flattenedRoutes 中查找对应的路由信息 nextLink。
+
+处理外链：
+
+1. 如果 nextLink 存在且具有 hideTab 和 frameSrc 属性，则表示这是一个外链。
+2. 使用 window.open(nextLink.frameSrc, '_blank') 在新标签页中打开外链，不进行路由导航。
+
+导航：
+
+1. 如果不是外链，调用 navigate(key) 进行路由导航。
